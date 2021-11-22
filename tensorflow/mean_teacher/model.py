@@ -6,27 +6,27 @@
 # Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
 
 "Mean teacher model"
+import tensorflow.compat.v1 as tf
+
+tf.disable_v2_behavior()
 
 import logging
 import os
 from collections import namedtuple
 
-import tensorflow as tf
-from tensorflow.contrib import metrics, slim
-from tensorflow.contrib.metrics import streaming_mean
-from tensorflow.contrib.metrics import streaming_accuracy
-from tensorflow.contrib.metrics import streaming_precision
-from tensorflow.contrib.metrics import streaming_recall
+import numpy as np
+import tf_slim as slim
+from tensorflow import metrics
+from tf_slim.metrics import (aggregate_metric_map, streaming_accuracy,
+                             streaming_mean, streaming_precision,
+                             streaming_recall)
 
-
-from . import nn
+from . import nn, string_utils
 from . import weight_norm as wn
-from .framework import ema_variable_scope, name_variable_scope, assert_shape, HyperparamVariables
-from . import string_utils
-
+from .framework import (HyperparamVariables, assert_shape, ema_variable_scope,
+                        name_variable_scope)
 
 LOG = logging.getLogger('main')
-
 
 class Model:
     DEFAULT_HYPERPARAMS = {
@@ -204,7 +204,7 @@ class Model:
         }
 
         with tf.variable_scope("validation_metrics") as metrics_scope:
-            self.metric_values, self.metric_update_ops = metrics.aggregate_metric_map({
+            self.metric_values, self.metric_update_ops = aggregate_metric_map({
                 "eval/error/1": streaming_mean(self.errors_1),
                 "eval/error/ema": streaming_mean(self.errors_ema),
                 "eval/class_cost/1": streaming_mean(self.class_costs_1),
@@ -261,7 +261,22 @@ class Model:
                 self.save_checkpoint()
         self.evaluate(evaluation_batches_fn)
         self.save_checkpoint()
-
+    def pred(self, evaluation_batches_fn):
+        self.run(self.metric_init_op)
+        preds=np.array([])
+        labels=np.array([])
+        for batch in evaluation_batches_fn():
+            self.run(self.metric_update_ops,
+                     feed_dict=self.feed_dict(batch, is_training=False))
+            pre_bat=self.run(self.out_prediction,feed_dict=self.feed_dict(batch, is_training=False))
+            labels=np.hstack((labels,batch['y']))
+            preds=np.hstack((preds, pre_bat))
+        step = self.run(self.global_step)
+        results = self.run(self.metric_values)
+        self.validation_log.record(step, results)
+        LOG.info("step %5d:   %s", step, self.result_formatter.format_dict(results))
+        return preds
+    
     def evaluate(self, evaluation_batches_fn):
         self.run(self.metric_init_op)
         for batch in evaluation_batches_fn():
@@ -288,6 +303,11 @@ class Model:
     def save_checkpoint(self):
         path = self.saver.save(self.session, self.checkpoint_path, global_step=self.global_step)
         LOG.info("Saved checkpoint: %r", path)
+
+    def load(self,checkpoint_path):
+        model_file=tf.train.latest_checkpoint(checkpoint_path)
+        print(model_file,"++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        self.saver.restore(self.session, model_file)
 
     def save_tensorboard_graph(self):
         writer = tf.summary.FileWriter(self.tensorboard_path)

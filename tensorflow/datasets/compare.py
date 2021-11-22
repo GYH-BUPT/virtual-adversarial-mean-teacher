@@ -31,6 +31,7 @@ class Datafile:
             ('y', np.int32, ())  # We will be using -1 for unlabeled
         ])
         dictionary = scipy.io.loadmat(self.path)
+        
         temp = np.transpose(dictionary['x'], [2, 0, 1])
         temp = temp[:,:,:,np.newaxis]
         data['x'] = temp
@@ -40,7 +41,7 @@ class Datafile:
 
 
 class COMPARE:
-    DIR = os.path.join('data', 'images', 'compare')
+    DIR = os.path.join('tensorflow','data', 'images', 'compare')
     FILES = {
         'train': Datafile(os.path.join(DIR, 'compare_train.mat'), 319000),
         'test': Datafile(os.path.join(DIR, 'compare_test.mat'),35436)
